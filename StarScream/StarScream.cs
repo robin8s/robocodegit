@@ -37,15 +37,21 @@ public class StarScream : Bot
     // We saw another bot -> fire!
     public override void OnScannedBot(ScannedBotEvent evt)
     {
+        //x1, y1 = position of the scanned bot
         double x1 = evt.X;
         double y1 = evt.Y;
+        //x2, y2 = position of our bot
         double x2 = X;
         double y2 = Y;
+        //differences in position
         double xt = x2 - x1;
         double yt = y2 - y1;
+        //calculate angle of bot from y axis
         double angle = Math.Atan2(Math.Abs(xt), Math.Abs(yt));
         angle = angle * 180 / Math.PI;
+        //relative angle is bots angular position in terms of circle plane, (0 = right)
         double RelativeAngle = 0;
+        //detrmine if angle is in the first, second, third, or fourth quadrant and calculate relative angle accordingly
         if (yt>0)
         {
             if (xt > 0)
@@ -68,8 +74,10 @@ public class StarScream : Bot
                 RelativeAngle = 90 - angle;
             }
         }
+        //turn angle is how much to turnn
         double turnAngle = RelativeAngle - RadarDirection;
-       if (turnAngle > 0)
+        //turn left or right depending on if turn angle is positive or negative
+        if (turnAngle > 0)
         {
             TurnRadarRight(turnAngle);
         }
