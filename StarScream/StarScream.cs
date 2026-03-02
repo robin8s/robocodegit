@@ -1,4 +1,4 @@
-﻿using Robocode.TankRoyale.BotApi;
+using Robocode.TankRoyale.BotApi;
 using Robocode.TankRoyale.BotApi.Events;
 using System;
 using System.Collections.Generic;
