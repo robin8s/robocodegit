@@ -6,6 +6,10 @@ using System.Collections.Generic;
 public class StarScream : Bot
 {
     private int _orbitDirection = 1;
+    double lastVx = 0;
+    double lastVy = 0;
+    bool hasLastVelocity = false;
+
 
     // Wave surfing state
     private double _lastEnemyEnergy = 100;
@@ -56,7 +60,16 @@ public class StarScream : Bot
         // -------------------------
         // 1. RADAR LOCK (unchanged)
         // -------------------------
+        
+
         double bearing = RadarBearingTo(e.X, e.Y);
+
+        if (Math.Abs(bearing) > 45)
+        {
+            SetTurnRadarLeft(360);
+            // DO NOT return; let the rest of the logic still run
+        }
+
         double spread = Math.Atan(36.0 / DistanceTo(e.X, e.Y)) * (180.0 / Math.PI);
         double radarTurn = bearing + (bearing >= 0 ? spread : -spread);
         SetTurnRadarLeft(radarTurn);
@@ -116,37 +129,81 @@ public class StarScream : Bot
     {
         double bulletSpeed = CalcBulletSpeed(0.5);
 
-        double dx = e.X - X;
-        double dy = e.Y - Y;
+        // Current enemy state
+        double ex = e.X;
+        double ey = e.Y;
 
-        double vtx = e.Speed * Math.Cos(e.Direction * Math.PI / 180.0);
-        double vty = e.Speed * Math.Sin(e.Direction * Math.PI / 180.0);
+        double vx = e.Speed * Math.Cos(e.Direction * Math.PI / 180.0);
+        double vy = e.Speed * Math.Sin(e.Direction * Math.PI / 180.0);
 
-        double A = (vtx * vtx + vty * vty) - (bulletSpeed * bulletSpeed);
-        double B = 2 * (dx * vtx + dy * vty);
-        double C = dx * dx + dy * dy;
+        // Compute acceleration (difference from last tick)
+        double ax = 0;
+        double ay = 0;
 
-        double discriminant = B * B - 4 * A * C;
-        if (discriminant < 0) return;
+        if (hasLastVelocity)
+        {
+            ax = vx - lastVx;
+            ay = vy - lastVy;
+        }
 
-        double sqrtD = Math.Sqrt(discriminant);
-        double t1 = (-B + sqrtD) / (2 * A);
-        double t2 = (-B - sqrtD) / (2 * A);
+        lastVx = vx;
+        lastVy = vy;
+        hasLastVelocity = true;
 
-        double t = double.MaxValue;
-        if (t1 > 0 && t1 < t) t = t1;
-        if (t2 > 0 && t2 < t) t = t2;
-        if (t == double.MaxValue) return;
 
-        double ux = (dx + vtx * t) / (bulletSpeed * t);
-        double uy = (dy + vty * t) / (bulletSpeed * t);
+        // Prediction variables
+        double px = ex;
+        double py = ey;
 
-        double aimAngle = Math.Atan2(uy, ux) * 180.0 / Math.PI;
+        double pvx = vx;
+        double pvy = vy;
 
+        double t = 0.0;
+        double dt = 1.0;
+
+        for (int i = 0; i < 200; i++)
+        {
+            // Distance from us to predicted point
+            double dx = px - X;
+            double dy = py - Y;
+            double dist = Math.Sqrt(dx * dx + dy * dy);
+
+            double bulletTime = dist / bulletSpeed;
+
+            // Converged
+            if (Math.Abs(bulletTime - t) < 0.5)
+                break;
+
+            // Apply acceleration, but damp it to avoid wild overshoot
+            pvx += ax * 0.5;
+            pvy += ay * 0.5;
+
+            // If enemy is slowing down, damp velocity heavily
+            if (Math.Sign(pvx) != Math.Sign(vx)) pvx *= 0.5;
+            if (Math.Sign(pvy) != Math.Sign(vy)) pvy *= 0.5;
+
+            // Hard stop detection: if speed is tiny, clamp prediction
+            double speed = Math.Sqrt(pvx * pvx + pvy * pvy);
+            if (speed < 0.5)
+            {
+                pvx = 0;
+                pvy = 0;
+            }
+
+            // Advance predicted position
+            px += pvx * dt;
+            py += pvy * dt;
+
+            t += dt;
+        }
+
+        // Aim at predicted point
+        double aimAngle = Math.Atan2(py - Y, px - X) * 180.0 / Math.PI;
+        if (double.IsNaN(aimAngle))
+            return;
+        // Normalize turn
         double delta = aimAngle - GunDirection;
-        delta = (delta + 180) % 360;
-        if (delta < 0) delta += 360;
-        delta -= 180;
+        delta = (delta + 540) % 360 - 180;
 
         if (delta > 0)
             SetTurnGunLeft(delta);
