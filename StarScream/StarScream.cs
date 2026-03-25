@@ -159,138 +159,111 @@ public class StarScream : Bot
 
 
     // ---------------------------------------------------------
-    // MOVEMENT SYSTEM (Wave Surfing Lite + Wall Avoidance)
+    // MOVEMENT SYSTEM (Mid‑range + Zero‑wall‑touch + Surfing)
     // ---------------------------------------------------------
     private void CalculateMovement(ScannedBotEvent e)
     {
-        // HARD SAFETY: never get closer than 10 units to any wall
-        if (IsTooCloseToWall(10))
+        double dist = DistanceTo(e.X, e.Y);
+        double angleToEnemy = DirectionTo(e.X, e.Y);
+
+        // Mid‑range band
+        double minDist = 350;
+        double maxDist = 550;
+
+        double moveAngle;
+
+        // -----------------------------
+        // 1. Distance control
+        // -----------------------------
+        if (dist < minDist)
         {
-            EscapeWall();
-            return;
+            // Too close → retreat
+            moveAngle = angleToEnemy + 180;
         }
-
-        // Find closest wave
-        BulletWave closest = null;
-        double closestDist = double.MaxValue;
-
-        foreach (var wave in _waves)
+        else if (dist > maxDist)
         {
-            double dx = X - wave.OriginX;
-            double dy = Y - wave.OriginY;
-            double dist = Math.Sqrt(dx * dx + dy * dy) - wave.DistanceTraveled;
-
-            if (dist < closestDist)
-            {
-                closestDist = dist;
-                closest = wave;
-            }
-        }
-
-        // No wave? fallback
-        if (closest == null)
-        {
-            SimpleOrbit(e);
-            return;
-        }
-
-        // Surf perpendicular to wave
-        double angleFromWave = DirectionTo(closest.OriginX, closest.OriginY);
-        double moveAngle = angleFromWave + (_surfDirection * 90);
-
-        // Personality bias
-        if (_preferCenter)
-        {
-            double centerAngle = DirectionTo(ArenaWidth / 2, ArenaHeight / 2);
-            moveAngle = (moveAngle * 0.7) + (centerAngle * 0.3);
+            // Too far → close in but offset to avoid head‑on
+            moveAngle = angleToEnemy + (_surfDirection * 60);
         }
         else
         {
-            double edgeBias = DirectionTo(closest.OriginX, closest.OriginY) + 180;
-            moveAngle = (moveAngle * 0.7) + (edgeBias * 0.3);
+            // In ideal range → surf perpendicular
+            moveAngle = angleToEnemy + (_surfDirection * 90);
         }
 
-        moveAngle = WallSmooth(moveAngle);
-
-        double turn = CalcDeltaAngle(moveAngle, Direction);
-        SetTurnLeft(turn);
-        SetForward(120);
-    }
-
-
-    private void SimpleOrbit(ScannedBotEvent e)
-    {
-        double angleToEnemy = DirectionTo(e.X, e.Y);
-        double orbitAngle = angleToEnemy + (_surfDirection * 90);
-
+        // -----------------------------
+        // 2. Personality bias
+        // -----------------------------
         if (_preferCenter)
         {
             double centerAngle = DirectionTo(ArenaWidth / 2, ArenaHeight / 2);
-            orbitAngle = (orbitAngle * 0.7) + (centerAngle * 0.3);
+            moveAngle = LerpAngle(moveAngle, centerAngle, 0.25);
         }
 
-        orbitAngle = WallSmooth(orbitAngle);
+        // -----------------------------
+        // 3. Apply wall‑safe correction
+        // -----------------------------
+        moveAngle = SafeAngle(moveAngle);
 
-        double turn = CalcDeltaAngle(orbitAngle, Direction);
+        // -----------------------------
+        // 4. Execute movement
+        // -----------------------------
+        double turn = CalcDeltaAngle(moveAngle, Direction);
         SetTurnLeft(turn);
-        SetForward(120);
+        SetForward(140);
     }
 
 
     // ---------------------------------------------------------
-    // WALL SAFETY
+    // WALL‑SAFE ANGLE CORRECTION
     // ---------------------------------------------------------
-    private bool IsTooCloseToWall(double margin)
+    private double SafeAngle(double angle)
     {
-        return
-            X < margin ||
-            X > ArenaWidth - margin ||
-            Y < margin ||
-            Y > ArenaHeight - margin;
-    }
+        double rad = angle * Math.PI / 180.0;
 
-    private void EscapeWall()
-    {
-        double escapeAngle = Direction;
+        // Projected movement point
+        double px = X + Math.Cos(rad) * 140;
+        double py = Y + Math.Sin(rad) * 140;
 
-        if (X < 10) escapeAngle = 0;
-        else if (X > ArenaWidth - 10) escapeAngle = 180;
+        double margin = 40;   // soft margin
+        double hard = 10;     // absolute minimum
 
-        if (Y < 10) escapeAngle = 90;
-        else if (Y > ArenaHeight - 10) escapeAngle = 270;
+        // Bend away from walls BEFORE moving
+        if (px < margin)
+            angle = Bend(angle, 0);          // push east
+        else if (px > ArenaWidth - margin)
+            angle = Bend(angle, 180);        // push west
 
-        double turn = CalcDeltaAngle(escapeAngle, Direction);
-        SetTurnLeft(turn);
-        SetForward(150);
-    }
-
-
-    // ---------------------------------------------------------
-    // WALL SMOOTHING
-    // ---------------------------------------------------------
-    private double WallSmooth(double angle)
-    {
-        double stick = 140;
-        double margin = 40;
-
-        for (int i = 0; i < 20; i++)
-        {
-            double rad = angle * Math.PI / 180.0;
-            double testX = X + Math.Cos(rad) * stick;
-            double testY = Y + Math.Sin(rad) * stick;
-
-            bool safe =
-                testX > margin &&
-                testX < ArenaWidth - margin &&
-                testY > margin &&
-                testY < ArenaHeight - margin;
-
-            if (safe)
-                return angle;
-
-            angle += 5 * _surfDirection;
-        }
+        if (py < margin)
+            angle = Bend(angle, 90);         // push north
+        else if (py > ArenaHeight - margin)
+            angle = Bend(angle, 270);        // push south
 
         return angle;
     }
+
+
+    // ---------------------------------------------------------
+    // ANGLE BENDING (smooth wall avoidance)
+    // ---------------------------------------------------------
+    private double Bend(double currentAngle, double wallNormal)
+    {
+        double delta = CalcDeltaAngle(wallNormal, currentAngle);
+
+        // Push angle away from the wall by up to 70°
+        double push = Math.Sign(delta) * 70;
+
+        return currentAngle + push;
+    }
+
+
+    // ---------------------------------------------------------
+    // ANGLE LERP (smooth personality blending)
+    // ---------------------------------------------------------
+    private double LerpAngle(double a, double b, double t)
+    {
+        double delta = CalcDeltaAngle(b, a);
+        return a + delta * t;
+    }
+
 }
