@@ -31,6 +31,9 @@ public class StarScream : Bot
 
     private readonly List<BulletWave> _waves = new List<BulletWave>();
 
+    // Freeze‑prevention state
+    private ScannedBotEvent _lastScan = null;
+    private int _ticksSinceScan = 0;
 
     // Entry point
     static void Main(string[] args)
@@ -53,10 +56,32 @@ public class StarScream : Bot
             Go();
     }
 
+    // TICK EVENT (used only when we are "blind")
+    public override void OnTick(TickEvent e)
+    {
+        _ticksSinceScan++;
+
+        // If we haven't scanned the enemy for a bit, keep radar and movement alive
+        if (_ticksSinceScan > 5)
+        {
+            // Sweep radar to try to reacquire
+            SetTurnRadarLeft(45);
+
+            // Continue movement using last known scan so we don't freeze
+            if (_lastScan != null)
+            {
+                CalculateMovement(_lastScan);
+            }
+        }
+    }
 
     // SCANNED BOT EVENT
     public override void OnScannedBot(ScannedBotEvent e)
     {
+        // Remember last scan and reset "blind" counter
+        _lastScan = e;
+        _ticksSinceScan = 0;
+
         // -------------------------
         // 1. RADAR LOCK (unchanged)
         // -------------------------
@@ -121,7 +146,6 @@ public class StarScream : Bot
         });
     }
 
-
     // ---------------------------------------------------------
     // GUN LOGIC (unchanged exactly as requested)
     // ---------------------------------------------------------
@@ -149,7 +173,6 @@ public class StarScream : Bot
         lastVx = vx;
         lastVy = vy;
         hasLastVelocity = true;
-
 
         // Prediction variables
         double px = ex;
@@ -201,6 +224,7 @@ public class StarScream : Bot
         double aimAngle = Math.Atan2(py - Y, px - X) * 180.0 / Math.PI;
         if (double.IsNaN(aimAngle))
             return;
+
         // Normalize turn
         double delta = aimAngle - GunDirection;
         delta = (delta + 540) % 360 - 180;
@@ -213,7 +237,6 @@ public class StarScream : Bot
         if (GunHeat == 0)
             SetFire(0.5);
     }
-
 
     // ---------------------------------------------------------
     // MOVEMENT SYSTEM (Mid‑range + Zero‑wall‑touch + Surfing)
@@ -270,7 +293,6 @@ public class StarScream : Bot
         SetForward(140);
     }
 
-
     // ---------------------------------------------------------
     // WALL‑SAFE ANGLE CORRECTION
     // ---------------------------------------------------------
@@ -283,7 +305,7 @@ public class StarScream : Bot
         double py = Y + Math.Sin(rad) * 140;
 
         double margin = 40;   // soft margin
-        double hard = 10;     // absolute minimum
+        double hard = 10;     // absolute minimum (currently unused, but kept)
 
         // Bend away from walls BEFORE moving
         if (px < margin)
@@ -299,7 +321,6 @@ public class StarScream : Bot
         return angle;
     }
 
-
     // ---------------------------------------------------------
     // ANGLE BENDING (smooth wall avoidance)
     // ---------------------------------------------------------
@@ -313,7 +334,6 @@ public class StarScream : Bot
         return currentAngle + push;
     }
 
-
     // ---------------------------------------------------------
     // ANGLE LERP (smooth personality blending)
     // ---------------------------------------------------------
@@ -322,5 +342,4 @@ public class StarScream : Bot
         double delta = CalcDeltaAngle(b, a);
         return a + delta * t;
     }
-
 }
